@@ -1,0 +1,4 @@
+Unripe
+Partially Ripe
+Fully Ripe
+Overripe
