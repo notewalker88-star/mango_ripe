@@ -10,6 +10,14 @@ class AppConstants {
   static const String labelsPath = 'assets/models/labels.txt';
   static const int modelInputSize = 224;
 
+  // Shortest time the analyzing overlay stays up, so the scan never feels abrupt.
+  // The pipeline waits this long even when inference finishes sooner.
+  static const Duration minAnalyzeDuration = Duration(milliseconds: 1200);
+
+  // Shortest time the splash screen stays up, so booting reads as a loading
+  // state rather than a flash.
+  static const Duration minSplashDuration = Duration(milliseconds: 900);
+
   // Ripeness Labels (Matching dataset / labels.txt)
   static const List<String> labels = [
     'Unripe',

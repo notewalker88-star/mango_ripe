@@ -87,13 +87,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       }
 
       final mlService = ref.read(mlServiceProvider);
+      // Thumbnail encoding does not depend on the result, so overlap it with
+      // inference instead of paying for it on the critical path.
+      final thumbnailFuture = ImageUtils.generateThumbnailBytes(cropped);
       final results = await Future.wait([
         mlService.classifyImage(cropped),
-        Future.delayed(const Duration(milliseconds: 2000)),
+        Future.delayed(AppConstants.minAnalyzeDuration),
       ]);
       ScanResult result = results[0] as ScanResult;
 
-      final thumbPath = await ImageUtils.saveThumbnail(cropped, result.id);
+      final thumbPath =
+          await ImageUtils.saveThumbnailBytes(await thumbnailFuture, result.id);
       result = result.copyWith(imagePath: thumbPath);
 
       if (mounted) {

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches AppColors.bgDark so the native launch window blends straight
+         into the Flutter splash with no white flash. -->
+    <color name="appBackground">#0A0F0A</color>
+</resources>

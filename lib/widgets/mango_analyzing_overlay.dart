@@ -2,9 +2,14 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:mango_ripe/core/constants/app_constants.dart';
 import 'package:mango_ripe/core/theme/app_colors.dart';
 
 /// Highly visual and interactive loading animation overlay for mango ripeness analysis.
+///
+/// Every animation is scoped to the smallest subtree that needs it and each
+/// independently animating layer sits behind a [RepaintBoundary], so a 60fps
+/// value change never rebuilds or re-rasterizes the captured image.
 class MangoAnalyzingOverlay extends StatefulWidget {
   final Uint8List? imageBytes;
   final String? customMessage;
@@ -16,7 +21,7 @@ class MangoAnalyzingOverlay extends StatefulWidget {
     this.imageBytes,
     this.customMessage,
     this.onCancel,
-    this.totalDuration = const Duration(milliseconds: 2200),
+    this.totalDuration = AppConstants.minAnalyzeDuration,
   });
 
   @override
@@ -29,6 +34,10 @@ class _MangoAnalyzingOverlayState extends State<MangoAnalyzingOverlay>
   late AnimationController _laserController;
   late AnimationController _pulseController;
   late AnimationController _progressController;
+
+  static const double _scannerSize = 230.0;
+  static const double _viewportSize = _scannerSize - 20;
+  static const double _beamHeight = 21;
 
   static const List<_AnalysisPhase> _phases = [
     _AnalysisPhase(
@@ -113,116 +122,127 @@ class _MangoAnalyzingOverlayState extends State<MangoAnalyzingOverlay>
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.88),
-      child: SafeArea(
-        child: AnimatedBuilder(
-          animation: Listenable.merge([
-            _rotationController,
-            _laserController,
-            _pulseController,
-            _progressController,
-          ]),
-          builder: (context, _) {
-            final progress = _progressController.value;
-            final currentPhase = _getCurrentPhase(progress);
+    return RepaintBoundary(
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.88),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              // Ambient background glows
+              Positioned.fill(child: _buildAmbientBackdrop()),
 
-            return Stack(
-              children: [
-                // Ambient background glows
-                Positioned.fill(
-                  child: _buildAmbientBackdrop(),
-                ),
+              // Main content column
+              Center(
+                child: SingleChildScrollView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Top badge
+                      RepaintBoundary(child: _buildTopBadge()),
 
-                // Main content column
-                Center(
-                  child: SingleChildScrollView(
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Top badge
-                        _buildTopBadge(progress),
+                      const SizedBox(height: 24),
 
-                        const SizedBox(height: 24),
+                      // Center holographic scanner
+                      RepaintBoundary(child: _buildHolographicScanner()),
 
-                        // Center holographic scanner
-                        _buildHolographicScanner(),
+                      const SizedBox(height: 32),
 
-                        const SizedBox(height: 32),
+                      // Phase title & subtitle
+                      RepaintBoundary(
+                        child: AnimatedBuilder(
+                          animation: _progressController,
+                          builder: (context, _) =>
+                              _buildPhaseInfo(_getCurrentPhase(_progressController.value)),
+                        ),
+                      ),
 
-                        // Phase title & subtitle
-                        _buildPhaseInfo(currentPhase),
+                      const SizedBox(height: 20),
 
-                        const SizedBox(height: 20),
+                      // Animated progress bar & percentage
+                      RepaintBoundary(
+                        child: AnimatedBuilder(
+                          animation: _progressController,
+                          builder: (context, _) => _buildProgressBar(_progressController.value),
+                        ),
+                      ),
 
-                        // Animated progress bar & percentage
-                        _buildProgressBar(progress),
+                      const SizedBox(height: 24),
 
-                        const SizedBox(height: 24),
-
-                        // Telemetry chips
-                        _buildTelemetryChips(progress),
-                      ],
-                    ),
+                      // Telemetry chips
+                      RepaintBoundary(
+                        child: AnimatedBuilder(
+                          animation: _progressController,
+                          builder: (context, _) => _buildTelemetryChips(_progressController.value),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
 
-                // Optional close / cancel button
-                if (widget.onCancel != null)
-                  Positioned(
-                    top: 16,
-                    right: 16,
-                    child: IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                      onPressed: widget.onCancel,
-                    ),
+              // Optional close / cancel button
+              if (widget.onCancel != null)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                    onPressed: widget.onCancel,
                   ),
-              ],
-            );
-          },
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildAmbientBackdrop() {
-    final pulse = _pulseController.value;
-    return Stack(
-      children: [
-        // Top right amber glow
-        Positioned(
-          top: -60,
-          right: -60,
-          child: Container(
-            width: 260,
-            height: 260,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.mangoAmber.withValues(alpha: 0.12 + pulse * 0.05),
-            ),
-          ),
-        ),
-        // Bottom left emerald green glow
-        Positioned(
-          bottom: -60,
-          left: -60,
-          child: Container(
-            width: 260,
-            height: 260,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.mangoGreenAccent.withValues(alpha: 0.10 + pulse * 0.05),
-            ),
-          ),
-        ),
-      ],
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _pulseController,
+        builder: (context, _) {
+          final pulse = _pulseController.value;
+          return Stack(
+            children: [
+              // Top right amber glow
+              Positioned(
+                top: -60,
+                right: -60,
+                child: Container(
+                  width: 260,
+                  height: 260,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.mangoAmber.withValues(alpha: 0.12 + pulse * 0.05),
+                  ),
+                ),
+              ),
+              // Bottom left emerald green glow
+              Positioned(
+                bottom: -60,
+                left: -60,
+                child: Container(
+                  width: 260,
+                  height: 260,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.mangoGreenAccent
+                        .withValues(alpha: 0.10 + pulse * 0.05),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
-  Widget _buildTopBadge(double progress) {
+  Widget _buildTopBadge() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
@@ -274,115 +294,150 @@ class _MangoAnalyzingOverlayState extends State<MangoAnalyzingOverlay>
   }
 
   Widget _buildHolographicScanner() {
-    const size = 230.0;
-    final pulse = _pulseController.value;
-    final rotation = _rotationController.value * 2 * math.pi;
-
     return SizedBox(
-      width: size + 40,
-      height: size + 40,
+      width: _scannerSize + 40,
+      height: _scannerSize + 40,
       child: Stack(
         alignment: Alignment.center,
         children: [
           // Outer pulsating radar wave ripples
-          CustomPaint(
-            size: const Size(size + 40, size + 40),
-            painter: _RadarWavePainter(pulse: pulse),
+          RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _pulseController,
+              builder: (context, _) => CustomPaint(
+                size: const Size(_scannerSize + 40, _scannerSize + 40),
+                painter: _RadarWavePainter(pulse: _pulseController.value),
+              ),
+            ),
           ),
 
-          // Outer rotating tech dashed ring
-          Transform.rotate(
-            angle: rotation,
-            child: CustomPaint(
-              size: const Size(size + 24, size + 24),
-              painter: _TechRingPainter(
-                color: AppColors.mangoAmber.withValues(alpha: 0.5),
-                isDashed: true,
-                dashCount: 24,
+          // Outer rotating tech dashed ring.
+          // The ring is a `child` of the AnimatedBuilder, so it is built once
+          // and only the parent transform is re-composited while spinning.
+          AnimatedBuilder(
+            animation: _rotationController,
+            child: RepaintBoundary(
+              child: CustomPaint(
+                size: const Size(_scannerSize + 24, _scannerSize + 24),
+                painter: const _TechRingPainter(
+                  color: AppColors.mangoAmber,
+                  dashCount: 24,
+                ),
               ),
+            ),
+            builder: (context, ring) => Transform.rotate(
+              angle: _rotationController.value * 2 * math.pi,
+              child: ring,
             ),
           ),
 
           // Inner counter-rotating segmented ring
-          Transform.rotate(
-            angle: -rotation * 1.5,
-            child: CustomPaint(
-              size: const Size(size + 6, size + 6),
-              painter: _SegmentedArcPainter(
-                color: AppColors.mangoGreenAccent.withValues(alpha: 0.6),
+          AnimatedBuilder(
+            animation: _rotationController,
+            child: RepaintBoundary(
+              child: CustomPaint(
+                size: const Size(_scannerSize + 6, _scannerSize + 6),
+                painter: const _SegmentedArcPainter(color: AppColors.mangoGreenAccent),
               ),
+            ),
+            builder: (context, arcs) => Transform.rotate(
+              angle: -_rotationController.value * 2 * math.pi * 1.5,
+              child: arcs,
             ),
           ),
 
-          // Target bounding box container
-          Container(
-            width: size - 20,
-            height: size - 20,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              color: AppColors.bgCard.withValues(alpha: 0.85),
-              border: Border.all(
-                color: AppColors.mangoAmber.withValues(alpha: 0.4 + pulse * 0.3),
-                width: 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.mangoAmber.withValues(alpha: 0.2 + pulse * 0.15),
-                  blurRadius: 20,
-                  spreadRadius: 2,
+          // Target bounding box container.
+          //
+          // The viewport contents are handed to the AnimatedBuilder as its
+          // `child`, so they are constructed once and reused verbatim. Only the
+          // border/glow decoration is rebuilt per frame, and the contents sit
+          // behind a RepaintBoundary so they are neither rebuilt nor
+          // re-rasterized while the border pulses.
+          AnimatedBuilder(
+            animation: _pulseController,
+            child: RepaintBoundary(child: _buildScannerViewport()),
+            builder: (context, viewport) {
+              final pulse = _pulseController.value;
+              return Container(
+                width: _viewportSize,
+                height: _viewportSize,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  color: AppColors.bgCard.withValues(alpha: 0.85),
+                  border: Border.all(
+                    color: AppColors.mangoAmber.withValues(alpha: 0.4 + pulse * 0.3),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.mangoAmber.withValues(alpha: 0.2 + pulse * 0.15),
+                      blurRadius: 20,
+                      spreadRadius: 2,
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(22),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Mango Image or Fallback Graphic
-                  if (widget.imageBytes != null && widget.imageBytes!.isNotEmpty)
-                    Image.memory(
-                      widget.imageBytes!,
-                      fit: BoxFit.cover,
-                    )
-                  else
-                    _buildFallbackMangoGraphic(),
-
-                  // Holographic mesh / dark tint overlay
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          AppColors.mangoGreen.withValues(alpha: 0.15),
-                          Colors.transparent,
-                          AppColors.mangoAmber.withValues(alpha: 0.15),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // High-tech corner targeting brackets
-                  CustomPaint(
-                    painter: _CornerBracketsPainter(
-                      color: AppColors.mangoAmberLight,
-                      bracketLength: 18,
-                      thickness: 2.5,
-                    ),
-                  ),
-
-                  // Sweeping laser scanner line
-                  _buildLaserBeam(size - 20),
-
-                  // AI Detection targeting markers / crosshairs
-                  _buildTargetMarkers(),
-                ],
-              ),
-            ),
+                child: viewport,
+              );
+            },
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildScannerViewport() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Mango Image or Fallback Graphic
+          RepaintBoundary(child: _buildScannerImage()),
+
+          // Holographic mesh / dark tint overlay
+          RepaintBoundary(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.mangoGreen.withValues(alpha: 0.15),
+                    Colors.transparent,
+                    AppColors.mangoAmber.withValues(alpha: 0.15),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // High-tech corner targeting brackets
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: _CornerBracketsPainter(
+                color: AppColors.mangoAmberLight,
+                bracketLength: 18,
+                thickness: 2.5,
+              ),
+            ),
+          ),
+
+          // Sweeping laser scanner line
+          RepaintBoundary(child: _buildLaserBeam()),
+
+          // AI Detection targeting markers / crosshairs
+          RepaintBoundary(child: _buildTargetMarkers()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScannerImage() {
+    final bytes = widget.imageBytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
+    }
+    return _buildFallbackMangoGraphic();
   }
 
   Widget _buildFallbackMangoGraphic() {
@@ -421,78 +476,88 @@ class _MangoAnalyzingOverlayState extends State<MangoAnalyzingOverlay>
     );
   }
 
-  Widget _buildLaserBeam(double containerHeight) {
-    final laserPos = _laserController.value * (containerHeight - 10);
-
-    return Positioned(
-      top: laserPos,
-      left: 0,
-      right: 0,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Glowing beam gradient trail
-          Container(
-            height: 18,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  AppColors.mangoAmber.withValues(alpha: 0.35),
+  /// Sweeping beam. The blurred beam is painted once and only translated, so
+  /// the (expensive) shadow blur is not re-rasterized on every frame.
+  Widget _buildLaserBeam() {
+    final travel = _viewportSize - _beamHeight;
+    return AnimatedBuilder(
+      animation: _laserController,
+      child: RepaintBoundary(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Glowing beam gradient trail
+            Container(
+              height: 18,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    AppColors.mangoAmber.withValues(alpha: 0.35),
+                  ],
+                ),
+              ),
+            ),
+            // Sharp laser horizontal bar
+            Container(
+              height: 2.5,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    AppColors.mangoAmberLight,
+                    Colors.white,
+                    AppColors.mangoAmberLight,
+                    Colors.transparent,
+                  ],
+                  stops: [0.0, 0.2, 0.5, 0.8, 1.0],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.mangoAmber.withValues(alpha: 0.9),
+                    blurRadius: 8,
+                    spreadRadius: 2,
+                  ),
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    blurRadius: 4,
+                    spreadRadius: 1,
+                  ),
                 ],
               ),
             ),
-          ),
-          // Sharp laser horizontal bar
-          Container(
-            height: 2.5,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [
-                  Colors.transparent,
-                  AppColors.mangoAmberLight,
-                  Colors.white,
-                  AppColors.mangoAmberLight,
-                  Colors.transparent,
-                ],
-                stops: [0.0, 0.2, 0.5, 0.8, 1.0],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.mangoAmber.withValues(alpha: 0.9),
-                  blurRadius: 8,
-                  spreadRadius: 2,
-                ),
-                BoxShadow(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  blurRadius: 4,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
+      ),
+      builder: (context, beam) => Transform.translate(
+        offset: Offset(0, _laserController.value * travel),
+        child: beam!,
       ),
     );
   }
 
   Widget _buildTargetMarkers() {
-    final pulse = _pulseController.value;
-    return Stack(
-      children: [
-        Positioned(
-          top: 30,
-          right: 25,
-          child: _buildMarkerChip('HSV: 42°', pulse),
-        ),
-        Positioned(
-          bottom: 30,
-          left: 25,
-          child: _buildMarkerChip('Brix: Calc...', 1.0 - pulse),
-        ),
-      ],
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, _) {
+        final pulse = _pulseController.value;
+        return Stack(
+          children: [
+            Positioned(
+              top: 30,
+              right: 25,
+              child: _buildMarkerChip('HSV: 42°', pulse),
+            ),
+            Positioned(
+              bottom: 30,
+              left: 25,
+              child: _buildMarkerChip('Brix: Calc...', 1.0 - pulse),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -648,21 +713,21 @@ class _MangoAnalyzingOverlayState extends State<MangoAnalyzingOverlay>
   }
 
   Widget _buildTelemetryChips(double progress) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 6,
+      runSpacing: 6,
       children: [
         _buildMiniBadge(
           icon: Icons.grid_view_rounded,
           text: '224x224 Tensor',
           active: progress > 0.1,
         ),
-        const SizedBox(width: 8),
         _buildMiniBadge(
           icon: Icons.memory_rounded,
           text: 'TFLite Model',
           active: progress > 0.45,
         ),
-        const SizedBox(width: 8),
         _buildMiniBadge(
           icon: Icons.auto_graph_rounded,
           text: 'Brix & Ripeness',
@@ -733,12 +798,10 @@ class _AnalysisPhase {
 /// Custom painter for tech dashed rings
 class _TechRingPainter extends CustomPainter {
   final Color color;
-  final bool isDashed;
   final int dashCount;
 
   const _TechRingPainter({
     required this.color,
-    this.isDashed = true,
     this.dashCount = 20,
   });
 
@@ -751,30 +814,18 @@ class _TechRingPainter extends CustomPainter {
 
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
-
-    if (!isDashed) {
-      canvas.drawCircle(center, radius, paint);
-      return;
-    }
+    final rect = Rect.fromCircle(center: center, radius: radius);
 
     final sweepAngle = (2 * math.pi) / dashCount;
     final arcLength = sweepAngle * 0.6;
 
     for (int i = 0; i < dashCount; i++) {
-      final startAngle = i * sweepAngle;
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        arcLength,
-        false,
-        paint,
-      );
+      canvas.drawArc(rect, i * sweepAngle, arcLength, false, paint);
     }
   }
 
   @override
-  bool shouldRepaint(_TechRingPainter oldDelegate) =>
-      color != oldDelegate.color || isDashed != oldDelegate.isDashed;
+  bool shouldRepaint(_TechRingPainter oldDelegate) => color != oldDelegate.color;
 }
 
 /// Custom painter for segmented tech arcs

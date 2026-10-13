@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:mango_ripe/core/constants/app_constants.dart';
 import 'package:mango_ripe/core/theme/app_colors.dart';
 import 'package:mango_ripe/data/models/scan_result.dart';
 import 'package:mango_ripe/data/providers/app_providers.dart';
@@ -104,6 +105,11 @@ class _CameraScanScreenState extends ConsumerState<CameraScanScreen>
   Future<void> _captureAndAnalyze() async {
     if (_isCapturing) return;
 
+    // Freeze the scan animations so they don't compete for frames with the
+    // analyzing overlay.
+    _scanLineController.stop();
+    _pulseController.stop();
+
     // If on emulator/device without physical camera stream
     if (!_isInitialized || _cameraController == null) {
       setState(() {
@@ -116,7 +122,7 @@ class _CameraScanScreenState extends ConsumerState<CameraScanScreen>
         final dummyBytes = Uint8List(224 * 224 * 3);
         final results = await Future.wait([
           mlService.classifyImage(dummyBytes),
-          Future.delayed(const Duration(milliseconds: 2200)),
+          Future.delayed(AppConstants.minAnalyzeDuration),
         ]);
         final result = results[0] as ScanResult;
 
@@ -134,6 +140,7 @@ class _CameraScanScreenState extends ConsumerState<CameraScanScreen>
             _capturedImageBytes = null;
           });
         }
+        _resumeScanAnimations();
       }
       return;
     }
@@ -157,12 +164,16 @@ class _CameraScanScreenState extends ConsumerState<CameraScanScreen>
       }
 
       final mlService = ref.read(mlServiceProvider);
+      // Thumbnail encoding does not depend on the result, so overlap it with
+      // inference instead of paying for it on the critical path.
+      final thumbnailFuture = ImageUtils.generateThumbnailBytes(cropped);
       final results = await Future.wait([
         mlService.classifyImage(cropped),
-        Future.delayed(const Duration(milliseconds: 2000)),
+        Future.delayed(AppConstants.minAnalyzeDuration),
       ]);
       ScanResult result = results[0] as ScanResult;
-      final thumbPath = await ImageUtils.saveThumbnail(cropped, result.id);
+      final thumbPath =
+          await ImageUtils.saveThumbnailBytes(await thumbnailFuture, result.id);
       result = result.copyWith(imagePath: thumbPath);
 
       if (mounted) {
@@ -188,7 +199,14 @@ class _CameraScanScreenState extends ConsumerState<CameraScanScreen>
           _capturedImageBytes = null;
         });
       }
+      _resumeScanAnimations();
     }
+  }
+
+  void _resumeScanAnimations() {
+    if (!mounted) return;
+    _scanLineController.repeat();
+    _pulseController.repeat(reverse: true);
   }
 
   @override
@@ -206,11 +224,15 @@ class _CameraScanScreenState extends ConsumerState<CameraScanScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Camera Preview or Fallback
-          if (_isInitialized && _cameraController != null)
+          // Camera Preview or Fallback.
+          // The preview is detached while analyzing: the overlay fully covers
+          // the screen, so there is no reason to keep compositing the texture.
+          if (_isInitialized && _cameraController != null && !_isCapturing)
             CameraPreview(_cameraController!)
           else if (_cameraErrorMessage != null)
             _buildCameraFallback()
+          else if (_isCapturing)
+            const ColoredBox(color: Colors.black)
           else
             const Center(
               child: CircularProgressIndicator(color: AppColors.mangoAmber),

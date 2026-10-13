@@ -43,14 +43,27 @@ class ImageUtils {
 
   /// Saves a thumbnail of the image and returns either a local path or a base64 data URI
   static Future<String?> saveThumbnail(Uint8List imageBytes, String id) async {
+    final encodedJpg = await generateThumbnailBytes(imageBytes);
+    return saveThumbnailBytes(encodedJpg, id);
+  }
+
+  /// Encodes a small thumbnail off the UI thread.
+  /// Call this concurrently with classification so the encode overlaps the analysis.
+  static Future<Uint8List> generateThumbnailBytes(Uint8List imageBytes) async {
     try {
-      Uint8List encodedJpg;
       if (kIsWeb) {
-        encodedJpg = _generateThumbnailBytes(imageBytes);
-      } else {
-        encodedJpg = await compute(_generateThumbnailBytes, imageBytes);
+        return _generateThumbnailBytes(imageBytes);
       }
-      if (encodedJpg.isEmpty) return null;
+      return await compute(_generateThumbnailBytes, imageBytes);
+    } catch (_) {
+      return Uint8List(0);
+    }
+  }
+
+  /// Persists bytes produced by [generateThumbnailBytes].
+  static Future<String?> saveThumbnailBytes(Uint8List encodedJpg, String id) async {
+    if (encodedJpg.isEmpty) return null;
+    try {
       return await _storage.saveThumbnailFile(encodedJpg, id);
     } catch (_) {
       return null;
